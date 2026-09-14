@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Terraform
+.terraform/
+# NB: .terraform.lock.hcl is intentionally NOT ignored — commit it to pin provider versions.
+*.tfstate
+*.tfstate.*
+crash.log
+# tfvars may carry account-specific ids — commit variables.tf defaults instead
+*.tfvars
+!example.tfvars
+
+# Built Lambda packages
+*.zip
+
+# AWS / secrets — NEVER commit credentials
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

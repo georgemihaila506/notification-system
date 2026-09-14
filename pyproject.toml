@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notification-system"
+version = "0.1.0"
+description = "A learning notification system on AWS (SNS + SQS + Lambda + SES + DynamoDB), from System Design Interview ch. 10."
+requires-python = ">=3.12"
+# Runtime deps intentionally empty: the Lambda runtime ships boto3; we zip only our source.
+dependencies = []
+
+[project.optional-dependencies]
+# Local dev + tests. moto mocks DynamoDB, SNS, SQS and SES in-process — no real AWS.
+dev = [
+    "boto3>=1.34",
+    "moto[dynamodb,sns,sqs,ses]>=5",
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

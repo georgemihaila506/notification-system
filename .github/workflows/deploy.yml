@@ -1,0 +1,44 @@
+name: deploy
+
+# Plan on every PR (a safe preview); apply only on merge to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# id-token: write lets the job request a GitHub OIDC token to assume the AWS
+# role — no long-lived AWS keys stored in the repo.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    env:
+      # The SES identity address, kept out of git: a repo secret, read by Terraform.
+      TF_VAR_notify_email: ${{ secrets.NOTIFY_EMAIL }}
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::944921954001:role/notification-system-github-actions
+          aws-region: eu-north-1
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        run: terraform plan -input=false -no-color
+
+      # Only mutate real infra on a push to main, never on a PR.
+      - name: Terraform apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve -input=false -no-color
