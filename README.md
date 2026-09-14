@@ -87,4 +87,6 @@ pytest
 
 ## Status
 
-Design hardened via a grilling session (ADR-0001…0007). **M0** in progress.
+Design hardened via a grilling session (ADR-0001…0007). Done: **M0** (scaffold, bootstrap,
+CI, SES identity; ingest stub live), **M1** (domain core + delivery loop, moto-tested).
+Next: **M2** (ingest live → SNS).
