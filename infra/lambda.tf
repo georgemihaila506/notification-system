@@ -32,6 +32,10 @@ resource "aws_lambda_function" "ingest" {
   handler          = "notifier.handlers.ingest.handler"
   filename         = data.archive_file.app.output_path
   source_code_hash = data.archive_file.app.output_base64sha256
+  # The 3s default timed out on a cold start (boto3 init + DynamoDB + SNS ≈ 3s).
+  # More memory = more CPU on Lambda, which also shortens the cold start.
+  timeout     = 10
+  memory_size = 256
 
   environment {
     variables = {
