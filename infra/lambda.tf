@@ -32,4 +32,12 @@ resource "aws_lambda_function" "ingest" {
   handler          = "notifier.handlers.ingest.handler"
   filename         = data.archive_file.app.output_path
   source_code_hash = data.archive_file.app.output_base64sha256
+
+  environment {
+    variables = {
+      PREFS_TABLE      = aws_dynamodb_table.prefs.name
+      DELIVERIES_TABLE = aws_dynamodb_table.deliveries.name
+      TOPIC_ARN        = aws_sns_topic.notifications.arn
+    }
+  }
 }

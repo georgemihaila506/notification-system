@@ -35,3 +35,23 @@ def store():
         _create(ddb, PREFS_TABLE)
         _create(ddb, DELIVERIES_TABLE)
         yield Store(PREFS_TABLE, DELIVERIES_TABLE, dynamodb=ddb)
+
+
+@pytest.fixture
+def api_env(monkeypatch):
+    """Tables + an SNS topic with an SQS queue subscribed to it (so tests can SEE what
+    was published), plus the env vars the ingest handler reads. Yields (store, queue)."""
+    with mock_aws():
+        ddb = boto3.resource("dynamodb", region_name="eu-north-1")
+        _create(ddb, PREFS_TABLE)
+        _create(ddb, DELIVERIES_TABLE)
+        topic_arn = boto3.client("sns", region_name="eu-north-1").create_topic(Name="t")["TopicArn"]
+        sqs = boto3.resource("sqs", region_name="eu-north-1")
+        queue = sqs.create_queue(QueueName="observe")
+        boto3.client("sns", region_name="eu-north-1").subscribe(
+            TopicArn=topic_arn, Protocol="sqs", Endpoint=queue.attributes["QueueArn"]
+        )
+        monkeypatch.setenv("PREFS_TABLE", PREFS_TABLE)
+        monkeypatch.setenv("DELIVERIES_TABLE", DELIVERIES_TABLE)
+        monkeypatch.setenv("TOPIC_ARN", topic_arn)
+        yield Store(PREFS_TABLE, DELIVERIES_TABLE, dynamodb=ddb), queue
