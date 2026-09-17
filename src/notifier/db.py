@@ -22,7 +22,9 @@ def delivery_key(notification_id: str, channel: str) -> str:
 
 
 class Store:
-    def __init__(self, prefs_table: str, deliveries_table: str, *, dynamodb=None) -> None:
+    def __init__(
+        self, prefs_table: str, deliveries_table: str, *, dynamodb=None
+    ) -> None:
         ddb = dynamodb or boto3.resource("dynamodb")
         self._prefs = ddb.Table(prefs_table)
         self._deliveries = ddb.Table(deliveries_table)
@@ -58,12 +60,35 @@ class Store:
                 return False
             raise
 
+    def reclaim_delivery(
+        self, notification_id: str, channel: str, seen_updated_at: int
+    ) -> bool:
+        """Re-claim a stale pending row for another attempt. Conditional on
+        `updated_at` being what we read, so two workers that both see the same
+        stale row can't both proceed. True if we won."""
+        try:
+            self._deliveries.update_item(
+                Key={"pk": delivery_key(notification_id, channel)},
+                UpdateExpression="SET updated_at = :t ADD attempts :one",
+                ConditionExpression="updated_at = :seen",
+                ExpressionAttributeValues={
+                    ":t": int(time.time()),
+                    ":one": 1,
+                    ":seen": seen_updated_at,
+                },
+            )
+            return True
+        except ClientError as err:
+            if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
+
     def mark_delivery(self, notification_id: str, channel: str, status: str) -> None:
         self._deliveries.update_item(
             Key={"pk": delivery_key(notification_id, channel)},
-            UpdateExpression="SET #s = :s, updated_at = :t ADD attempts :one",
+            UpdateExpression="SET #s = :s, updated_at = :t",
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":s": status, ":t": int(time.time()), ":one": 1},
+            ExpressionAttributeValues={":s": status, ":t": int(time.time())},
         )
 
     # --- rate limiting (M6) ------------------------------------------------------
