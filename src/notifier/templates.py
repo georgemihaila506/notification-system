@@ -9,7 +9,10 @@ from .models import PermanentError
 
 TEMPLATES: dict[str, tuple[str, str]] = {
     "welcome": ("Welcome, {name}!", "Hi {name}, thanks for joining."),
-    "order_shipped": ("Your order {order_id} shipped", "Order {order_id} is on its way."),
+    "order_shipped": (
+        "Your order {order_id} shipped",
+        "Order {order_id} is on its way.",
+    ),
 }
 
 

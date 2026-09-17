@@ -41,7 +41,9 @@ class Notification:
         POST collapses to one notification — while two users sharing a key never
         collide. Hashing the user-scoped string gives a clean fixed-length key.
         """
-        return hashlib.sha256(f"{self.user_id}#{self.idempotency_key}".encode()).hexdigest()
+        return hashlib.sha256(
+            f"{self.user_id}#{self.idempotency_key}".encode()
+        ).hexdigest()
 
     def to_wire(self) -> str:
         """JSON for the SNS message body."""

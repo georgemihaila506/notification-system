@@ -35,7 +35,10 @@ def _publish(topic_arn: str, notification: Notification, channels: list[str]) ->
         TopicArn=topic_arn,
         Message=notification.to_wire(),
         MessageAttributes={
-            "channels": {"DataType": "String.Array", "StringValue": json.dumps(channels)}
+            "channels": {
+                "DataType": "String.Array",
+                "StringValue": json.dumps(channels),
+            }
         },
     )
 
@@ -54,9 +57,15 @@ def handler(event: dict, context: object) -> dict:
         notification = Notification.from_wire(event["body"])
         if not all(
             isinstance(v, str) and v
-            for v in (notification.user_id, notification.type, notification.idempotency_key)
+            for v in (
+                notification.user_id,
+                notification.type,
+                notification.idempotency_key,
+            )
         ) or not isinstance(notification.payload, dict):
-            raise ValueError("fields must be non-empty strings; payload must be an object")
+            raise ValueError(
+                "fields must be non-empty strings; payload must be an object"
+            )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as err:
         return _response(400, {"error": f"invalid request: {err}"})
 
@@ -72,4 +81,6 @@ def handler(event: dict, context: object) -> dict:
         logger.exception("failed to publish notification")
         return _response(500, {"error": "could not accept notification"})
 
-    return _response(202, {"notification_id": notification.notification_id, "channels": channels})
+    return _response(
+        202, {"notification_id": notification.notification_id, "channels": channels}
+    )
