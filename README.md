@@ -88,5 +88,7 @@ pytest
 ## Status
 
 Design hardened via a grilling session (ADR-0001…0007). Done: **M0** (scaffold, bootstrap,
-CI, SES identity; ingest stub live), **M1** (domain core + delivery loop, moto-tested).
-Next: **M2** (ingest live → SNS).
+CI, SES identity; ingest stub live), **M1** (domain core + delivery loop, moto-tested),
+**M2** (ingest live → SNS), **M3** (per-channel SQS queues + DLQs, worker Lambdas with
+partial-batch failure reporting, simulated senders with fault injection, DLQ alarms).
+Next: **M4** (real email via SES).
