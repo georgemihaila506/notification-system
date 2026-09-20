@@ -154,7 +154,11 @@ def deliver(
             raise PermanentError(f"no address for channel {channel}")
         address = prefs["addresses"][channel]
         send(notification, address)
-    except PermanentError:
+    except PermanentError as err:
+        # why: the ledger records THAT it failed; only this records WHY. Without it a
+        # permanent failure is completely silent — no log line anywhere — and the
+        # chained provider reason ("Email address is not verified...") is lost.
+        logger.warning("permanent failure %s/%s: %s", nid, channel, err)
         store.mark_delivery(nid, channel, "failed")
         return "failed"
 

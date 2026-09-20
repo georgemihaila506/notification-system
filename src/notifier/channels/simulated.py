@@ -35,10 +35,10 @@ def simulated(channel: str) -> Callable[[Notification, str], None]:
 
         1. render(notification.type, notification.payload) -> (subject, body).
            An unknown type raises PermanentError from render() — let it propagate.
-        2. logger.info("would deliver via %s: %s at %s", channel, subject, address).
-           Before the hint check on purpose: a transient_fail drill should still
-           show this line in CloudWatch on every retry. The address is logged
-           because "would deliver via sms" alone cannot tell you it went nowhere.
+        2. Log the line. Before the hint check on purpose: a transient_fail drill
+           should still show it in CloudWatch on every retry. `user_id` rather than
+           the address, matching channels/ses.py — a raw phone number in a log
+           store is PII, and prefs holds the address if you need it.
         3. hint = notification.payload.get("simulate"):
              None              -> return (delivered)
              "transient_fail"  -> raise TransientError
@@ -46,7 +46,12 @@ def simulated(channel: str) -> Callable[[Notification, str], None]:
              anything else     -> raise PermanentError naming the bad value
         """
         subject, _ = render(notification.type, notification.payload)
-        logger.info("would deliver via %s: %s at %s", channel, subject, address)
+        logger.info(
+            "would deliver via %s for user %s: %s",
+            channel,
+            notification.user_id,
+            subject,
+        )
         hint = notification.payload.get("simulate")
         if hint is None:
             return  # delivered

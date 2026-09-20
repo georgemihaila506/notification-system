@@ -90,5 +90,15 @@ pytest
 Design hardened via a grilling session (ADR-0001…0007). Done: **M0** (scaffold, bootstrap,
 CI, SES identity; ingest stub live), **M1** (domain core + delivery loop, moto-tested),
 **M2** (ingest live → SNS), **M3** (per-channel SQS queues + DLQs, worker Lambdas with
-partial-batch failure reporting, simulated senders with fault injection, DLQ alarms).
-Next: **M4** (real email via SES).
+partial-batch failure reporting, simulated senders with fault injection, DLQ alarms),
+**M4** (per-channel destination addresses; real email via SES with failure classification).
+
+M3 and M4 were each drilled against real AWS, not just moto. The M3 drill found two bugs a
+green test suite had missed — both in assumptions about AWS *timing* rather than in logic
+(see [ADR-0008](docs/adr/0008-in-flight-is-not-skippable.md)). The M4 drill found that a real
+send lands in spam, because mail cannot be authenticated for a domain you do not control
+(see [ADR-0004](docs/adr/0004-real-vs-simulated-delivery.md)).
+
+Next: **M6** (per-user rate limiting). **M5** is undefined; the strongest candidate is the
+delivery-event feedback loop — today the ledger records `delivered` when SES merely accepted
+custody, and true outcomes only arrive asynchronously as bounce/complaint/delivery events.

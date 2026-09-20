@@ -18,8 +18,9 @@ def test_clean_send_renders_and_logs(caplog):
     with caplog.at_level("INFO"):
         simulated("sms")(_n({"name": "G"}), "+40000000000")
     assert "would deliver via sms" in caplog.text
-    assert "+40000000000" in caplog.text
     assert "Welcome, G!" in caplog.text
+    assert "u1" in caplog.text  # user_id, not the address (PII stays out of logs)
+    assert "+40000000000" not in caplog.text
 
 
 def test_transient_hint_raises_transient():

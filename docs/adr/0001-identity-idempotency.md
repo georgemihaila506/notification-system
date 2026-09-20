@@ -20,6 +20,9 @@ caller retrying a `POST` whose response timed out.
 - A failed SMS retries even though the email for the same notification delivered.
 - The API contract requires an idempotency key (a deliberate burden on callers).
 
+Refined by [ADR-0008](0008-in-flight-is-not-skippable.md): the conditional write has three
+outcomes, not two, and "another worker holds it" must not be treated as "already done".
+
 ## Rejected
 - **Server-generated ids** — blind to client retries: a timed-out-and-retried POST mints two
   ids and double-sends.
