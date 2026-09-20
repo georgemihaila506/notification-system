@@ -22,20 +22,23 @@ from ..templates import render
 logger = logging.getLogger(__name__)
 
 
-def simulated(channel: str) -> Callable[[Notification], None]:
-    """Build the sender for one channel. Returns a `(Notification) -> None`.
+def simulated(channel: str) -> Callable[[Notification, str], None]:
+    """Build the sender for one channel. Returns a `(Notification, address) -> None`.
 
-    `channel` is captured by the closure so the log line can name it.
+    `channel` is captured by the closure so the log line can name it. `address` is
+    resolved by deliver() from the prefs row and passed in, so senders never touch
+    the store.
     """
 
-    def send(notification: Notification) -> None:
+    def send(notification: Notification, address: str) -> None:
         """Simulate one delivery. Steps, in this order:
 
         1. render(notification.type, notification.payload) -> (subject, body).
            An unknown type raises PermanentError from render() — let it propagate.
-        2. logger.info("would deliver via %s: %s", channel, subject).
+        2. logger.info("would deliver via %s: %s at %s", channel, subject, address).
            Before the hint check on purpose: a transient_fail drill should still
-           show this line in CloudWatch on every retry.
+           show this line in CloudWatch on every retry. The address is logged
+           because "would deliver via sms" alone cannot tell you it went nowhere.
         3. hint = notification.payload.get("simulate"):
              None              -> return (delivered)
              "transient_fail"  -> raise TransientError
@@ -43,7 +46,7 @@ def simulated(channel: str) -> Callable[[Notification], None]:
              anything else     -> raise PermanentError naming the bad value
         """
         subject, _ = render(notification.type, notification.payload)
-        logger.info("would deliver via %s: %s", channel, subject)
+        logger.info("would deliver via %s: %s at %s", channel, subject, address)
         hint = notification.payload.get("simulate")
         if hint is None:
             return  # delivered

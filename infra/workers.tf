@@ -39,6 +39,10 @@ resource "aws_lambda_function" "worker" {
       # be allowed through). 3x worker timeout = 30s, mid-way between 10s and 60s.
       # Setting this equal to the visibility timeout deadlocks every retry.
       STALE_AFTER_S = local.worker_timeout_s * 3
+
+      # why: the verified From identity. Set for every worker, not just email, so
+      # the three functions keep one env shape — the simulated senders ignore it.
+      SES_SOURCE = aws_ses_email_identity.notify.email
     }
   }
 }

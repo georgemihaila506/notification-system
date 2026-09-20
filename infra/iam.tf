@@ -20,6 +20,18 @@ data "aws_iam_policy_document" "app_access" {
     ]
     resources = [for q in aws_sqs_queue.channel : q.arn]
   }
+  # why: SES has no per-recipient resource to scope to, so the resource is "*" and
+  # the constraint goes on the FROM address instead — ses:FromAddress limits this
+  # role to sending as our one verified identity and nothing else.
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = [aws_ses_email_identity.notify.email]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "app_access" {

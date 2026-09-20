@@ -13,6 +13,10 @@ from notifier.db import Store
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
 os.environ.setdefault("AWS_DEFAULT_REGION", "eu-north-1")
+# handlers.worker builds SENDERS at import, and the SES sender needs its From
+# identity then — deliberately fail-fast, so a misconfigured Lambda dies on the
+# first cold start rather than once per message. Set it before any test imports.
+os.environ.setdefault("SES_SOURCE", "notify@example.com")
 
 PREFS_TABLE = "prefs-test"
 DELIVERIES_TABLE = "deliveries-test"

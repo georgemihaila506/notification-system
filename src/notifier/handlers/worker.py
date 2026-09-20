@@ -16,18 +16,24 @@ import os
 import time
 from collections.abc import Callable
 
+from ..channels.ses import ses_sender
 from ..channels.simulated import simulated
 from ..db import Store
 from ..models import CHANNELS, Notification, PermanentError, TransientError
 
 logger = logging.getLogger(__name__)
 
-# A channel's send function: given the notification, deliver it or raise
-# TransientError / PermanentError.
-Sender = Callable[[Notification], None]
+# A channel's send function: given the notification and the destination address
+# deliver() resolved for this channel, deliver it or raise TransientError /
+# PermanentError. Senders never read the store — the address is handed to them.
+Sender = Callable[[Notification, str], None]
 
-# channel -> its sender. Simulated for every channel until M4 swaps email for SES.
-SENDERS: dict[str, Sender] = {c: simulated(c) for c in CHANNELS}
+# channel -> its sender. Email is real (ADR-0004); sms and push stay simulated,
+# which is what makes them the deterministic rig for the retry/DLQ drills.
+# Built at import so each container creates its boto3 clients once.
+SENDERS: dict[str, Sender] = {c: simulated(c) for c in CHANNELS} | {
+    "email": ses_sender(os.environ["SES_SOURCE"])
+}
 
 
 def handler(event: dict, context: object) -> dict:
@@ -117,6 +123,11 @@ def deliver(
       (conditionally on `updated_at`, so two workers can't both proceed) and retry.
     * Opt-out re-check (ADR-0005) happens right before sending, inside the same
       `try` as the send, so it's recorded as a permanent failure like any other.
+    * Address resolution reuses that same prefs row — one GetItem serves both. A
+      channel that is enabled but has no address (or a row predating `addresses`
+      entirely) is a PermanentError: no retry will conjure a destination. Checked
+      after opt-out, so a disabled channel reads as "opted out" rather than the
+      more confusing "no address" for something the user never wanted.
     * Classification (ADR-0003): a PermanentError is recorded as `failed` and swallowed —
       never retried. A TransientError deliberately propagates: raising out of the
       worker leaves the SQS message undeleted, which is exactly what makes it retry.
@@ -137,9 +148,12 @@ def deliver(
 
     try:
         prefs = store.get_prefs(notification.user_id)
-        if not prefs or channel not in prefs["channels"]:
+        if not prefs or channel not in prefs.get("channels", []):
             raise PermanentError("opted out")
-        send(notification)
+        if channel not in prefs.get("addresses", {}):
+            raise PermanentError(f"no address for channel {channel}")
+        address = prefs["addresses"][channel]
+        send(notification, address)
     except PermanentError:
         store.mark_delivery(nid, channel, "failed")
         return "failed"

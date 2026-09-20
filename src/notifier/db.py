@@ -1,7 +1,8 @@
 """DynamoDB access — the ONLY module that talks to the tables.
 
 Two tables:
-  prefs       pk=user_id               -> channels (list), [rate counter in M6]
+  prefs       pk=user_id               -> channels (list), addresses (channel -> where
+                                          to send), [rate counter in M6]
   deliveries  pk=notification_id#channel -> status (pending|delivered|failed), attempts
 
 The deliveries table is the dedup ledger (ADR-0001): one row per notification per
@@ -33,8 +34,12 @@ class Store:
     def get_prefs(self, user_id: str) -> dict | None:
         return self._prefs.get_item(Key={"pk": user_id}).get("Item")
 
-    def put_prefs(self, user_id: str, channels: list[str]) -> None:
-        self._prefs.put_item(Item={"pk": user_id, "channels": channels})
+    def put_prefs(
+        self, user_id: str, channels: list[str], addresses: dict | None = None
+    ) -> None:
+        self._prefs.put_item(
+            Item={"pk": user_id, "channels": channels, "addresses": addresses or {}}
+        )
 
     # --- deliveries (dedup ledger) ----------------------------------------------
     def get_delivery(self, notification_id: str, channel: str) -> dict | None:

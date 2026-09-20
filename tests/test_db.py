@@ -27,8 +27,17 @@ def test_reclaim_delivery_is_conditional_on_what_was_read(store):
 
 def test_prefs_roundtrip(store):
     assert store.get_prefs("u1") is None
-    store.put_prefs("u1", ["email", "push"])
-    assert store.get_prefs("u1")["channels"] == ["email", "push"]
+    store.put_prefs("u1", ["email", "push"], {"email": "u1@example.com"})
+    row = store.get_prefs("u1")
+    assert row["channels"] == ["email", "push"]
+    assert row["addresses"] == {"email": "u1@example.com"}
+
+
+def test_prefs_without_addresses_is_allowed(store):
+    """Addresses are optional at write time -- a channel with no address fails at
+    send time (ADR-0003 permanent), not here."""
+    store.put_prefs("u1", ["email"])
+    assert store.get_prefs("u1")["channels"] == ["email"]
 
 
 def test_increment_counter_is_atomic(store):

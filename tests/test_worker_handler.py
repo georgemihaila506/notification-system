@@ -36,7 +36,7 @@ class _Sender:
         self.calls = 0
         self.raise_ = raise_
 
-    def __call__(self, n):
+    def __call__(self, n, address):
         self.calls += 1
         if self.raise_:
             raise self.raise_
@@ -49,7 +49,7 @@ def worker_env(store, monkeypatch):
     monkeypatch.setenv("PREFS_TABLE", PREFS_TABLE)
     monkeypatch.setenv("DELIVERIES_TABLE", DELIVERIES_TABLE)
     monkeypatch.setenv("STALE_AFTER_S", "30")
-    store.put_prefs("u1", ["email"])
+    store.put_prefs("u1", ["email"], {"email": "u1@example.com"})
     return store
 
 
@@ -101,7 +101,7 @@ def test_unparseable_record_is_kept_for_dlq_not_dropped(worker_env, monkeypatch)
 def test_one_bad_record_does_not_take_down_its_batch_mates(worker_env, monkeypatch):
     calls = {"n": 0}
 
-    def flaky(n):
+    def flaky(n, address):
         calls["n"] += 1
         if n.idempotency_key == "b":
             raise TransientError("timeout")
