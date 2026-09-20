@@ -17,12 +17,28 @@ resource "aws_lambda_function" "worker" {
   # number to the code so worker and queue can never disagree.
   timeout = local.worker_timeout_s
 
+  # why: logger.info() is invisible by default — Lambda's root logger starts at
+  # WARNING, so the drill's "would deliver via <channel>" lines never reached
+  # CloudWatch. Application log level only applies when the format is JSON.
+  logging_config {
+    log_format            = "JSON"
+    application_log_level = "INFO"
+    system_log_level      = "WARN"
+  }
+
   environment {
     variables = {
-      CHANNEL              = each.key
-      PREFS_TABLE          = aws_dynamodb_table.prefs.name
-      DELIVERIES_TABLE     = aws_dynamodb_table.deliveries.name
-      VISIBILITY_TIMEOUT_S = aws_sqs_queue.channel[each.key].visibility_timeout_seconds
+      CHANNEL          = each.key
+      PREFS_TABLE      = aws_dynamodb_table.prefs.name
+      DELIVERIES_TABLE = aws_dynamodb_table.deliveries.name
+
+      # why: how old a `pending` row must be before a worker treats it as a dead
+      # attempt rather than one in flight. It MUST sit strictly between the worker
+      # timeout (a Lambda cannot outlive it, so anything older is provably dead)
+      # and the visibility timeout (an SQS retry arrives at ~that mark and has to
+      # be allowed through). 3x worker timeout = 30s, mid-way between 10s and 60s.
+      # Setting this equal to the visibility timeout deadlocks every retry.
+      STALE_AFTER_S = local.worker_timeout_s * 3
     }
   }
 }

@@ -48,7 +48,7 @@ def worker_env(store, monkeypatch):
     monkeypatch.setenv("CHANNEL", "email")
     monkeypatch.setenv("PREFS_TABLE", PREFS_TABLE)
     monkeypatch.setenv("DELIVERIES_TABLE", DELIVERIES_TABLE)
-    monkeypatch.setenv("VISIBILITY_TIMEOUT_S", "60")
+    monkeypatch.setenv("STALE_AFTER_S", "30")
     store.put_prefs("u1", ["email"])
     return store
 
@@ -73,6 +73,18 @@ def test_permanent_failure_is_not_reported(worker_env, monkeypatch):
     resp = worker.handler(_sqs_event(_n("a")), None)
     assert resp == {"batchItemFailures": []}  # recorded as failed, message deleted
     assert worker_env.get_delivery(_n("a").notification_id, "email")["status"] == "failed"
+
+
+def test_in_flight_record_is_kept_not_deleted(worker_env, monkeypatch):
+    """A record another worker provably holds must stay on the queue. Deleting it
+    on the assumption that worker succeeds is how the live drill lost a message."""
+    send = _Sender()
+    monkeypatch.setitem(worker.SENDERS, "email", send)
+    n = _n("a")
+    worker_env.put_delivery_if_absent(n.notification_id, "email")
+    resp = worker.handler(_sqs_event(n), None)
+    assert resp == {"batchItemFailures": [{"itemIdentifier": "msg-0"}]}
+    assert send.calls == 0
 
 
 def test_unparseable_record_is_kept_for_dlq_not_dropped(worker_env, monkeypatch):

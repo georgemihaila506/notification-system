@@ -83,24 +83,39 @@ def test_pending_from_a_crashed_attempt_is_retried(store):
     assert int(store.get_delivery(nid, "email")["attempts"]) == 2
 
 
-def test_fresh_pending_is_in_flight_elsewhere_so_skipped(store):
+def test_fresh_pending_is_in_flight_not_skipped(store):
+    """Too young to be dead -> in_flight, NOT skipped. The caller must keep the
+    message: if the worker holding it dies, deleting here would lose it."""
     store.put_prefs("u1", ["email"])
     nid = _n().notification_id
     store.put_delivery_if_absent(nid, "email")  # another worker is sending right now
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send) == "skipped"
+    assert deliver(store, "email", _n(), send) == "in_flight"
     assert send.calls == 0
 
 
-def test_losing_the_claim_race_skips(store, monkeypatch):
+def test_losing_the_claim_race_is_in_flight(store, monkeypatch):
     store.put_prefs("u1", ["email"])
     nid = _n().notification_id
     # Both workers read "no row"; the other one's conditional put lands first.
     monkeypatch.setattr(store, "get_delivery", lambda *a: None)
     store.put_delivery_if_absent(nid, "email")
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send) == "skipped"
+    assert deliver(store, "email", _n(), send) == "in_flight"
     assert send.calls == 0
+
+
+def test_retry_arriving_at_the_visibility_timeout_is_reclaimed(store):
+    """The bug the live drill found: an SQS retry lands at ~the visibility timeout
+    after the claim. With stale_after_s below that, it must be reclaimed and
+    retried -- not mistaken for an in-flight worker and dropped."""
+    store.put_prefs("u1", ["email"])
+    nid = _n().notification_id
+    store.put_delivery_if_absent(nid, "email")
+    _backdate(store, nid, "email", 58)  # observed gap for a 60s visibility timeout
+    send = _CountingSender()
+    assert deliver(store, "email", _n(), send, stale_after_s=30) == "delivered"
+    assert send.calls == 1
 
 
 def test_permanent_failure_is_not_retried_on_redelivery(store):
