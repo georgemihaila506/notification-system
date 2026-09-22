@@ -93,12 +93,20 @@ CI, SES identity; ingest stub live), **M1** (domain core + delivery loop, moto-t
 partial-batch failure reporting, simulated senders with fault injection, DLQ alarms),
 **M4** (per-channel destination addresses; real email via SES with failure classification).
 
-M3 and M4 were each drilled against real AWS, not just moto. The M3 drill found two bugs a
-green test suite had missed — both in assumptions about AWS *timing* rather than in logic
-(see [ADR-0008](docs/adr/0008-in-flight-is-not-skippable.md)). The M4 drill found that a real
-send lands in spam, because mail cannot be authenticated for a domain you do not control
-(see [ADR-0004](docs/adr/0004-real-vs-simulated-delivery.md)).
+**M5** (delivery feedback: SES events → ledger → automatic suppression) and **M6** (per-user
+hourly rate limiting) complete the build.
 
-Next: **M6** (per-user rate limiting). **M5** is undefined; the strongest candidate is the
-delivery-event feedback loop — today the ledger records `delivered` when SES merely accepted
-custody, and true outcomes only arrive asynchronously as bounce/complaint/delivery events.
+Every milestone from M3 on was drilled against real AWS, not just moto, and the drills are
+where the interesting failures were:
+
+* **M3** — two bugs a green test suite had missed, both in assumptions about AWS *timing*
+  rather than in logic: a staleness threshold equal to the visibility timeout deleted a
+  notification unprocessed, and the DLQ alarm never fired because SQS publishes metrics
+  minutes later than the alarm's window ([ADR-0008](docs/adr/0008-in-flight-is-not-skippable.md)).
+* **M4** — a real email arrived, in spam. Mail cannot be authenticated for a domain you do
+  not control ([ADR-0004](docs/adr/0004-real-vs-simulated-delivery.md)).
+* **M5** — worked first time: a simulated bounce suppressed the channel, and the next request
+  routed around it with no new enforcement code, because ADR-0005 already re-checks
+  preferences twice ([ADR-0009](docs/adr/0009-delivery-events.md)).
+* **M6** — the burst tripped the *account's* Lambda concurrency limit (10) long before the
+  application limit engaged. The limit you reason about is rarely the one that fires first.

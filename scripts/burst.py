@@ -23,7 +23,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 
-def _hit(url: str, user_id: str) -> int:
+def _hit(url: str, user_id: str) -> str:
     body = json.dumps(
         {
             "user_id": user_id,
@@ -36,11 +36,14 @@ def _hit(url: str, user_id: str) -> int:
         url, data=body, headers={"content-type": "application/json"}, method="POST"
     )
     try:
-        return urllib.request.urlopen(req, timeout=10).status
+        return str(urllib.request.urlopen(req, timeout=10).status)
     except urllib.error.HTTPError as err:
-        return err.code  # 429 arrives here
-    except Exception:
-        return 0
+        return str(err.code)  # 429 arrives here
+    except Exception as err:
+        # Named, not swallowed into a bare 0: a tally of zeros tells you nothing,
+        # and the usual cause is local (no CA bundle -> SSLCertVerificationError),
+        # which looks nothing like a rate limit but counts the same.
+        return f"ERR {type(err).__name__}"
 
 
 def main() -> None:
@@ -56,7 +59,7 @@ def main() -> None:
 
     print(f"{args.n} requests as {args.user}, {args.workers} concurrent:")
     for code, count in sorted(collections.Counter(codes).items()):
-        print(f"  HTTP {code}: {count}")
+        print(f"  {code}: {count}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # ADR-0009 — Delivery feedback: SES events back into the ledger, correlated by message tag
 
-**Status:** Accepted (grilled 2026-09-22)
+**Status:** Accepted (grilled 2026-09-22) · Built and drilled the same day
 
 ## Context
 The M4 drill exposed a lie. `deliver()` writes `status=delivered` when `send_email` returns a

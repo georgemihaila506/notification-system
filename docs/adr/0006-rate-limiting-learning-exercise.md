@@ -1,6 +1,6 @@
 # ADR-0006 — Per-user rate limiting is a LABELED learning exercise (built late, M6)
 
-**Status:** Accepted (grilled 2026-09-14)
+**Status:** Accepted (grilled 2026-09-14) · Built and drilled 2026-09-22
 
 ## Decision
 A per-user DynamoDB counter / token bucket (atomic `ADD`) enforced at ingest (reject with 429),
@@ -20,6 +20,16 @@ verified with a synthetic burst.
   `PAY_PER_REQUEST` table costs nothing.
 - **Counter rows expire.** Every row carries `expires_at`; without it each user accumulates
   one row per window forever.
+
+## What the drill found (2026-09-22)
+30 concurrent POSTs returned 20×202 and 10×429 with `202 + 429 == n` exactly — the atomic
+`ADD` loses no increments under concurrency, which is the claim worth testing.
+
+The first attempt returned 10×202 and 20×**503**. Those never reached this code: the AWS
+account's Lambda concurrent-execution limit is 10, so API Gateway surfaced Lambda throttling
+as a 503. Three limiters exist here — account concurrency (10), API Gateway stage throttling
+(unconfigured), and this per-user counter (20/hour) — and the lowest bound won. A limit you
+reason about carefully is not necessarily the one that fires.
 
 ## Honesty
 At personal scale nobody gets spammed, so this solves no real problem — the same YAGNI knife that
