@@ -6,6 +6,12 @@ data "aws_iam_policy_document" "app_access" {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.prefs.arn, aws_dynamodb_table.deliveries.arn]
   }
+  # why UpdateItem only: the rate counter is never read or written any other way —
+  # the atomic ADD is the entire access pattern (ADR-0006).
+  statement {
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.rate.arn]
+  }
   statement {
     actions   = ["sns:Publish"]
     resources = [aws_sns_topic.notifications.arn]

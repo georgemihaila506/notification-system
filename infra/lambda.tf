@@ -42,6 +42,12 @@ resource "aws_lambda_function" "ingest" {
       PREFS_TABLE      = aws_dynamodb_table.prefs.name
       DELIVERIES_TABLE = aws_dynamodb_table.deliveries.name
       TOPIC_ARN        = aws_sns_topic.notifications.arn
+      RATE_TABLE       = aws_dynamodb_table.rate.name
+
+      # why 20/hour: high enough that normal use never sees it, low enough that a
+      # burst drill trips it in one run. ADR-0006 is honest that at this scale the
+      # limit protects nobody — the transferable part is the primitive, not the number.
+      RATE_LIMIT_PER_HOUR = 20
     }
   }
 }

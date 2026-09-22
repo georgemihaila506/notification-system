@@ -21,6 +21,7 @@ os.environ.setdefault("SES_CONFIG_SET", "notify-events")
 
 PREFS_TABLE = "prefs-test"
 DELIVERIES_TABLE = "deliveries-test"
+RATE_TABLE = "rate-test"
 
 
 def _create(ddb, name: str) -> None:
@@ -39,7 +40,8 @@ def store():
         ddb = boto3.resource("dynamodb", region_name="eu-north-1")
         _create(ddb, PREFS_TABLE)
         _create(ddb, DELIVERIES_TABLE)
-        yield Store(PREFS_TABLE, DELIVERIES_TABLE, dynamodb=ddb)
+        _create(ddb, RATE_TABLE)
+        yield Store(PREFS_TABLE, DELIVERIES_TABLE, rate_table=RATE_TABLE, dynamodb=ddb)
 
 
 @pytest.fixture
@@ -50,6 +52,7 @@ def api_env(monkeypatch):
         ddb = boto3.resource("dynamodb", region_name="eu-north-1")
         _create(ddb, PREFS_TABLE)
         _create(ddb, DELIVERIES_TABLE)
+        _create(ddb, RATE_TABLE)
         topic_arn = boto3.client("sns", region_name="eu-north-1").create_topic(Name="t")["TopicArn"]
         sqs = boto3.resource("sqs", region_name="eu-north-1")
         queue = sqs.create_queue(QueueName="observe")
@@ -59,4 +62,6 @@ def api_env(monkeypatch):
         monkeypatch.setenv("PREFS_TABLE", PREFS_TABLE)
         monkeypatch.setenv("DELIVERIES_TABLE", DELIVERIES_TABLE)
         monkeypatch.setenv("TOPIC_ARN", topic_arn)
-        yield Store(PREFS_TABLE, DELIVERIES_TABLE, dynamodb=ddb), queue
+        monkeypatch.setenv("RATE_TABLE", RATE_TABLE)
+        monkeypatch.setenv("RATE_LIMIT_PER_HOUR", "3")
+        yield Store(PREFS_TABLE, DELIVERIES_TABLE, rate_table=RATE_TABLE, dynamodb=ddb), queue

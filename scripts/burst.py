@@ -1,48 +1,60 @@
-"""Fire N concurrent requests at a URL and tally HTTP status codes.
+"""Fire N concurrent POSTs at the ingest endpoint and tally HTTP status codes.
 
-Demos API Gateway throttling (M6): a concurrent burst exceeds the stage's
-burst/rate limit and the overflow comes back as 429. Sequential requests are
-network-bound (~2-3/s) and won't trip a sane limit — throttling shows under
-concurrency, which is the point.
+Demos the per-user rate limit (M6, ADR-0006): each request costs one token from
+the user's hourly counter, and the overflow comes back as 429. Concurrency is the
+interesting part — DynamoDB's atomic ADD is what makes the count correct when
+requests land at the same instant, so `202 + 429 == n` exactly, with no double
+spends and no lost ones.
 
-Usage: python scripts/burst.py https://<api>/<code> --n 60 --workers 30
+Every request carries a distinct idempotency key: reusing one would collapse to a
+single notification (ADR-0001) but still spend quota, which muddies the tally.
+
+Usage: python scripts/burst.py https://<api>/notifications --user u1 --n 30
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import json
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None  # don't follow the 302 — we only care about the status code
-
-
-def _hit(url: str) -> int:
-    opener = urllib.request.build_opener(_NoRedirect)
+def _hit(url: str, user_id: str) -> int:
+    body = json.dumps(
+        {
+            "user_id": user_id,
+            "type": "welcome",
+            "payload": {"name": "Burst"},
+            "idempotency_key": uuid.uuid4().hex,
+        }
+    ).encode()
+    req = urllib.request.Request(
+        url, data=body, headers={"content-type": "application/json"}, method="POST"
+    )
     try:
-        return opener.open(url, timeout=10).status
+        return urllib.request.urlopen(req, timeout=10).status
     except urllib.error.HTTPError as err:
-        return err.code  # 302 / 404 / 429 all arrive here
+        return err.code  # 429 arrives here
     except Exception:
         return 0
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("url")
-    ap.add_argument("--n", type=int, default=60, help="total requests")
-    ap.add_argument("--workers", type=int, default=30, help="concurrent workers")
+    ap.add_argument("url", help="the POST /notifications endpoint")
+    ap.add_argument("--user", default="burst-user", help="user_id to charge")
+    ap.add_argument("--n", type=int, default=30, help="total requests")
+    ap.add_argument("--workers", type=int, default=15, help="concurrent workers")
     args = ap.parse_args()
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        codes = list(pool.map(lambda _: _hit(args.url), range(args.n)))
+        codes = list(pool.map(lambda _: _hit(args.url, args.user), range(args.n)))
 
-    print(f"{args.n} requests, {args.workers} concurrent:")
+    print(f"{args.n} requests as {args.user}, {args.workers} concurrent:")
     for code, count in sorted(collections.Counter(codes).items()):
         print(f"  HTTP {code}: {count}")
 

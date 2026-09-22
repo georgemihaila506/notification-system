@@ -1,9 +1,16 @@
-"""POST /notifications — validate, identify, route, publish. (M2)
+"""POST /notifications — validate, identify, rate limit, route, publish.
 
 Thin glue around the domain: parse the request, build a Notification (its id comes
-from the caller's idempotency key — ADR-0001), look up the user's allowed channels,
-and publish ONCE to SNS with those channels as a message attribute so the per-channel
-queues can filter (ADR-0002). Returns 202: accepted for delivery, not yet delivered.
+from the caller's idempotency key — ADR-0001), charge it against the user's hourly
+quota (ADR-0006), look up the user's allowed channels, and publish ONCE to SNS with
+those channels as a message attribute so the per-channel queues can filter
+(ADR-0002). Returns 202: accepted for delivery, not yet delivered — or 429 when the
+quota is spent.
+
+Note the quota counts REQUESTS while ADR-0001 dedups NOTIFICATIONS, so a caller
+retrying a timed-out POST spends quota on a notification that was already accepted.
+Deduping the counter would need a read before the atomic ADD, which is the whole
+thing the ADD exists to avoid.
 """
 
 from __future__ import annotations
@@ -14,7 +21,7 @@ import os
 
 import boto3
 
-from ..db import Store
+from ..db import Store, rate_window
 from ..models import Notification
 
 logger = logging.getLogger(__name__)
@@ -69,9 +76,21 @@ def handler(event: dict, context: object) -> dict:
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as err:
         return _response(400, {"error": f"invalid request: {err}"})
 
-    store = Store(os.environ["PREFS_TABLE"], os.environ["DELIVERIES_TABLE"])
+    store = Store(
+        os.environ["PREFS_TABLE"],
+        os.environ["DELIVERIES_TABLE"],
+        rate_table=os.environ["RATE_TABLE"],
+    )
+
+    # Rate limit (ADR-0006) after validation but before publishing: counting
+    # malformed requests would let a broken client exhaust a real user's quota,
+    # and counting after publishing would not stop anything.
+    used = store.increment_counter(notification.user_id, rate_window())
+    if used > int(os.environ["RATE_LIMIT_PER_HOUR"]):
+        return _response(429, {"error": "rate limit exceeded"})
+
     prefs = store.get_prefs(notification.user_id)
-    channels = prefs["channels"] if prefs else []
+    channels = prefs.get("channels", []) if prefs else []
 
     # Publish once; the per-channel queues filter on the `channels` attribute.
     try:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 
 def test_put_delivery_if_absent_claims_once(store):
     assert store.put_delivery_if_absent("n1", "email", "u1") is True
@@ -91,3 +93,27 @@ def test_prefs_without_addresses_is_allowed(store):
 def test_increment_counter_is_atomic(store):
     assert store.increment_counter("u1", "2026-09-14T16") == 1
     assert store.increment_counter("u1", "2026-09-14T16") == 2
+
+
+def test_counters_are_per_user_and_per_window(store):
+    assert store.increment_counter("u1", "2026-09-14T16") == 1
+    assert store.increment_counter("u2", "2026-09-14T16") == 1  # other user
+    assert store.increment_counter("u1", "2026-09-14T17") == 1  # next hour resets
+
+
+def test_counter_rows_expire(store):
+    """Without a TTL every user accumulates one row per window forever. The value
+    must be comfortably past the window it counts, so a late write in the same
+    hour cannot land on an already-expiring row (ADR-0006)."""
+    store.increment_counter("u1", "2026-09-14T16")
+    row = store._rate.get_item(Key={"pk": "u1#2026-09-14T16"})["Item"]
+    assert int(row["expires_at"]) > int(time.time()) + 3600
+
+
+def test_counters_do_not_touch_the_prefs_table(store):
+    """TTL is a table-wide setting; counters live apart so that arming automatic
+    deletion never points at durable user data (ADR-0006)."""
+    store.put_prefs("u1", ["email"], {"email": "a@b.c"})
+    store.increment_counter("u1", "2026-09-14T16")
+    assert store.get_prefs("u1")["channels"] == ["email"]
+    assert store._prefs.scan()["Count"] == 1  # the counter is not in here

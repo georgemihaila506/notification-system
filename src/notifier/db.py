@@ -1,17 +1,26 @@
 """DynamoDB access — the ONLY module that talks to the tables.
 
-Two tables:
-  prefs       pk=user_id               -> channels (list), addresses (channel -> where
-                                          to send), [rate counter in M6]
-  deliveries  pk=notification_id#channel -> status (pending|delivered|failed), attempts
+Three tables:
+  prefs       pk=user_id                 -> channels (list), addresses (channel -> where
+                                            to send)
+  deliveries  pk=notification_id#channel -> status (pending|sent|failed), attempts,
+                                            user_id, provider_status + bounce_type
+  rate        pk=user_id#window          -> count, expires_at
 
 The deliveries table is the dedup ledger (ADR-0001): one row per notification per
 channel. `put_delivery_if_absent` is the conditional write that makes DynamoDB the
-uniqueness referee.
+uniqueness referee. `status` is what the sender did; `provider_status` is what the
+provider later reported, on a separate attribute so the two writers cannot race
+(ADR-0009).
+
+The rate table is separate rather than a keyspace inside prefs because TTL is a
+table-wide setting, and expiring counters must not arm automatic deletion on
+durable user data (ADR-0006).
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
 import time
 
@@ -25,13 +34,30 @@ def delivery_key(notification_id: str, channel: str) -> str:
     return f"{notification_id}#{channel}"
 
 
+def rate_window(at: float | None = None) -> str:
+    """The UTC hour bucket a request counts against, e.g. "2026-09-22T17".
+
+    Fixed windows, not a sliding one (ADR-0006): the boundary burst is accepted
+    -- ten requests at 17:59 and ten at 18:01 is twice the limit in two minutes.
+    """
+    moment = datetime.datetime.fromtimestamp(at or time.time(), datetime.timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H")
+
+
 class Store:
     def __init__(
-        self, prefs_table: str, deliveries_table: str, *, dynamodb=None
+        self,
+        prefs_table: str,
+        deliveries_table: str,
+        *,
+        rate_table: str | None = None,
+        dynamodb=None,
     ) -> None:
         ddb = dynamodb or boto3.resource("dynamodb")
         self._prefs = ddb.Table(prefs_table)
         self._deliveries = ddb.Table(deliveries_table)
+        # Only ingest rate-limits, so the workers construct a Store without it.
+        self._rate = ddb.Table(rate_table) if rate_table else None
 
     # --- preferences -----------------------------------------------------------
     def get_prefs(self, user_id: str) -> dict | None:
@@ -191,14 +217,28 @@ class Store:
                 logger.warning("prefs for %s changed under us, retrying", user_id)
         logger.error("could not disable %s for %s after 3 attempts", channel, user_id)
 
-    # --- rate limiting (M6) ------------------------------------------------------
+    # --- rate limiting (M6, ADR-0006) --------------------------------------------
     def increment_counter(self, user_id: str, window: str) -> int:
-        """Atomically bump the user's send count for a time window; returns the new count."""
-        resp = self._prefs.update_item(
-            Key={"pk": f"{user_id}#rate#{window}"},
-            UpdateExpression="ADD #c :one",
+        """Atomically bump this user's count for one window; return the new value.
+
+        `ADD` is applied server-side, so concurrent requests cannot both read the
+        same value and write the same increment — no read, no conditional write,
+        no retry loop. That primitive is the reason this exercise exists.
+
+        Rows live in their own table and carry `expires_at`: TTL is a table-wide
+        setting, and pointing automatic deletion at the prefs table would put
+        durable user data one stray attribute away from vanishing.
+        """
+        if not self._rate:
+            raise RuntimeError("Store was constructed without a rate table")
+        resp = self._rate.update_item(
+            Key={"pk": f"{user_id}#{window}"},
+            UpdateExpression="ADD #c :one SET expires_at = :exp",
             ExpressionAttributeNames={"#c": "count"},
-            ExpressionAttributeValues={":one": 1},
+            ExpressionAttributeValues={
+                ":one": 1,
+                ":exp": int(time.time() + 7200),
+            },
             ReturnValues="UPDATED_NEW",
         )
         return int(resp["Attributes"]["count"])
