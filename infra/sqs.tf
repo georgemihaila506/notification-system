@@ -8,6 +8,10 @@ locals {
   # Worker Lambda timeout — the queue settings below are derived from it.
   # why: cold start ~3s + a real SES send; 5s would kill healthy work and burn an attempt.
   worker_timeout_s = 10
+
+  # The SES events worker (ADR-0009) does no provider call at all — two DynamoDB
+  # writes at most — so it needs less headroom than a sending worker.
+  events_timeout_s = 10
 }
 
 resource "aws_sqs_queue" "dlq" {

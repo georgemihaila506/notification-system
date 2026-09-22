@@ -18,7 +18,17 @@ data "aws_iam_policy_document" "app_access" {
       "sqs:DeleteMessage",
       "sqs:GetQueueAttributes",
     ]
-    resources = [for q in aws_sqs_queue.channel : q.arn]
+    resources = concat(
+      [for q in aws_sqs_queue.channel : q.arn],
+      [aws_sqs_queue.ses_events.arn],
+    )
+  }
+  # why: suppression rewrites the prefs row (ADR-0009), and the events worker
+  # shares this role. DeleteItem is deliberately absent — nothing in this system
+  # deletes a row, and a bug that tried to should fail rather than succeed.
+  statement {
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.prefs.arn]
   }
   # why: SES has no per-recipient resource to scope to, so the resource is "*" and
   # the constraint goes on the FROM address instead — ses:FromAddress limits this

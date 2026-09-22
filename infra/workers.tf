@@ -43,6 +43,10 @@ resource "aws_lambda_function" "worker" {
       # why: the verified From identity. Set for every worker, not just email, so
       # the three functions keep one env shape — the simulated senders ignore it.
       SES_SOURCE = aws_ses_email_identity.notify.email
+
+      # why: sends must name the configuration set, or SES publishes no events at
+      # all and the whole inbound half of ADR-0009 is silently dead.
+      SES_CONFIG_SET = aws_sesv2_configuration_set.notify.configuration_set_name
     }
   }
 }

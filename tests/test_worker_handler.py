@@ -59,7 +59,7 @@ def test_clean_delivery_reports_no_failures(worker_env, monkeypatch):
     resp = worker.handler(_sqs_event(_n("a")), None)
     assert resp == {"batchItemFailures": []}
     assert send.calls == 1
-    assert worker_env.get_delivery(_n("a").notification_id, "email")["status"] == "delivered"
+    assert worker_env.get_delivery(_n("a").notification_id, "email")["status"] == "sent"
 
 
 def test_transient_failure_is_reported_by_message_id(worker_env, monkeypatch):
@@ -81,7 +81,7 @@ def test_in_flight_record_is_kept_not_deleted(worker_env, monkeypatch):
     send = _Sender()
     monkeypatch.setitem(worker.SENDERS, "email", send)
     n = _n("a")
-    worker_env.put_delivery_if_absent(n.notification_id, "email")
+    worker_env.put_delivery_if_absent(n.notification_id, "email", "u1")
     resp = worker.handler(_sqs_event(n), None)
     assert resp == {"batchItemFailures": [{"itemIdentifier": "msg-0"}]}
     assert send.calls == 0

@@ -32,7 +32,7 @@ Sender = Callable[[Notification, str], None]
 # which is what makes them the deterministic rig for the retry/DLQ drills.
 # Built at import so each container creates its boto3 clients once.
 SENDERS: dict[str, Sender] = {c: simulated(c) for c in CHANNELS} | {
-    "email": ses_sender(os.environ["SES_SOURCE"])
+    "email": ses_sender("email", os.environ["SES_SOURCE"], os.environ["SES_CONFIG_SET"])
 }
 
 
@@ -54,7 +54,7 @@ def handler(event: dict, context: object) -> dict:
         its retries and land in the DLQ with its body intact, instead of vanishing.
 
     What doesn't:
-      * `delivered`, `failed` and `skipped` — the work is finished, and deleting the
+      * `sent`, `failed` and `skipped` — the work is finished, and deleting the
         message is what makes ADR-0003's "never retried" true for a permanent failure.
       * Any other exception propagates and fails the whole invoke, which keeps every
         record in the batch. Retrying the unknown is the safe default.
@@ -112,9 +112,15 @@ def deliver(
 ) -> str:
     """Deliver one notification on one channel, effectively once.
 
-    Returns "delivered" | "in_flight" | "skipped" | "failed".
+    Returns "sent" | "in_flight" | "skipped" | "failed".
 
-    * Dedup (ADR-0001): a row marked `delivered` or `failed` is finished work → `skipped`,
+    `sent` means the provider accepted it, which is NOT the same as the recipient
+    receiving it — that only becomes known later, from the provider's own events, and
+    is recorded on a separate `provider_status` attribute (ADR-0009). Calling this
+    state `delivered` was a lie the M4 drill caught: SES accepted a message Gmail then
+    filed as spam.
+
+    * Dedup (ADR-0001): a row marked `sent` or `failed` is finished work → `skipped`,
       and the caller may delete the message. Anything another worker provably holds right
       now — a lost conditional put, a lost re-claim, or a `pending` row too young to be
       dead — returns `in_flight`, and the caller must KEEP the message: deleting it bets
@@ -135,7 +141,7 @@ def deliver(
     nid = notification.notification_id
     existing = store.get_delivery(nid, channel)
     if existing is None:
-        if not store.put_delivery_if_absent(nid, channel):
+        if not store.put_delivery_if_absent(nid, channel, notification.user_id):
             return "in_flight"
     elif existing["status"] != "pending":
         return "skipped"
@@ -162,5 +168,5 @@ def deliver(
         store.mark_delivery(nid, channel, "failed")
         return "failed"
 
-    store.mark_delivery(nid, channel, "delivered")
-    return "delivered"
+    store.mark_delivery(nid, channel, "sent")
+    return "sent"

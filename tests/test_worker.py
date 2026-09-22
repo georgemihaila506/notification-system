@@ -30,7 +30,7 @@ def test_the_channels_address_is_passed_to_the_sender(store):
     address from that same row -- senders never touch the store."""
     store.put_prefs("u1", ["email"], {"email": "george@example.com"})
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send) == "delivered"
+    assert deliver(store, "email", _n(), send) == "sent"
     assert send.address == "george@example.com"
 
 
@@ -60,10 +60,10 @@ def test_enabled_but_no_address_is_permanent(store, item):
 def test_delivers_once_and_dedups_redelivery(store):
     store.put_prefs("u1", ["email"], {"email": "u1@example.com"})
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send) == "delivered"
+    assert deliver(store, "email", _n(), send) == "sent"
     assert deliver(store, "email", _n(), send) == "skipped"  # SQS redelivered it
     assert send.calls == 1
-    assert store.get_delivery(_n().notification_id, "email")["status"] == "delivered"
+    assert store.get_delivery(_n().notification_id, "email")["status"] == "sent"
 
 
 def test_channels_dedup_independently(store):
@@ -87,7 +87,7 @@ def test_transient_failure_propagates_for_retry(store):
     with pytest.raises(TransientError):
         deliver(store, "email", _n(), send)
     # not marked delivered -> a redelivery will try again
-    assert store.get_delivery(_n().notification_id, "email")["status"] != "delivered"
+    assert store.get_delivery(_n().notification_id, "email")["status"] != "sent"
 
 
 def test_opted_out_is_permanent_failure(store):
@@ -108,10 +108,10 @@ def _backdate(store, nid, channel, seconds):
 def test_pending_from_a_crashed_attempt_is_retried(store):
     store.put_prefs("u1", ["email"], {"email": "u1@example.com"})
     nid = _n().notification_id
-    store.put_delivery_if_absent(nid, "email")  # an earlier attempt claimed, then crashed
+    store.put_delivery_if_absent(nid, "email", "u1")  # an earlier attempt claimed, then crashed
     _backdate(store, nid, "email", 3600)
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send) == "delivered"
+    assert deliver(store, "email", _n(), send) == "sent"
     assert send.calls == 1
     assert int(store.get_delivery(nid, "email")["attempts"]) == 2
 
@@ -121,7 +121,7 @@ def test_fresh_pending_is_in_flight_not_skipped(store):
     message: if the worker holding it dies, deleting here would lose it."""
     store.put_prefs("u1", ["email"], {"email": "u1@example.com"})
     nid = _n().notification_id
-    store.put_delivery_if_absent(nid, "email")  # another worker is sending right now
+    store.put_delivery_if_absent(nid, "email", "u1")  # another worker is sending right now
     send = _CountingSender()
     assert deliver(store, "email", _n(), send) == "in_flight"
     assert send.calls == 0
@@ -132,7 +132,7 @@ def test_losing_the_claim_race_is_in_flight(store, monkeypatch):
     nid = _n().notification_id
     # Both workers read "no row"; the other one's conditional put lands first.
     monkeypatch.setattr(store, "get_delivery", lambda *a: None)
-    store.put_delivery_if_absent(nid, "email")
+    store.put_delivery_if_absent(nid, "email", "u1")
     send = _CountingSender()
     assert deliver(store, "email", _n(), send) == "in_flight"
     assert send.calls == 0
@@ -144,10 +144,10 @@ def test_retry_arriving_at_the_visibility_timeout_is_reclaimed(store):
     retried -- not mistaken for an in-flight worker and dropped."""
     store.put_prefs("u1", ["email"], {"email": "u1@example.com"})
     nid = _n().notification_id
-    store.put_delivery_if_absent(nid, "email")
+    store.put_delivery_if_absent(nid, "email", "u1")
     _backdate(store, nid, "email", 58)  # observed gap for a 60s visibility timeout
     send = _CountingSender()
-    assert deliver(store, "email", _n(), send, stale_after_s=30) == "delivered"
+    assert deliver(store, "email", _n(), send, stale_after_s=30) == "sent"
     assert send.calls == 1
 
 

@@ -16,3 +16,12 @@ output "dlq_urls" {
   description = "Per-channel DLQ URLs, for inspection and redrive."
   value       = { for k, q in aws_sqs_queue.dlq : k => q.id }
 }
+
+output "ses_events_queue_url" {
+  description = "Inbound SES event queue, for watching a delivery/bounce drill."
+  value       = aws_sqs_queue.ses_events.id
+}
+
+output "ses_events_dlq_url" {
+  value = aws_sqs_queue.ses_events_dlq.id
+}

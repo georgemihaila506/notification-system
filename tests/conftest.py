@@ -17,6 +17,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "eu-north-1")
 # identity then — deliberately fail-fast, so a misconfigured Lambda dies on the
 # first cold start rather than once per message. Set it before any test imports.
 os.environ.setdefault("SES_SOURCE", "notify@example.com")
+os.environ.setdefault("SES_CONFIG_SET", "notify-events")
 
 PREFS_TABLE = "prefs-test"
 DELIVERIES_TABLE = "deliveries-test"

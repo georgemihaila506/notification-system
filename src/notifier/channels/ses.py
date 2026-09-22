@@ -1,9 +1,14 @@
-"""Real email delivery via SES (M4, ADR-0004).
+"""Real email delivery via SES (M4/M5, ADR-0004 and ADR-0009).
 
 The only channel that talks to a real provider. Everything the pipeline does
 around it — dedup, opt-out, retry, DLQ — is unchanged; only the final send is
 real. What this module adds is *classification*: turning SES's error codes into
 the TransientError / PermanentError distinction ADR-0003 is built on.
+
+Sends also carry a configuration set and correlation tags, which is what makes
+the inbound half possible: SES publishes delivery, bounce and complaint events
+identified by ITS message id, and the tags are how those events find their way
+back to our ledger row.
 
 SES stays in its sandbox (200/day, 1/sec, verified recipients only), so the
 throttling and rejection paths below are not hypothetical.
@@ -52,10 +57,18 @@ PERMANENT_CODES: frozenset[str] = frozenset(
 )
 
 
-def ses_sender(source: str, *, client=None) -> Callable[[Notification, str], None]:
+def ses_sender(
+    channel: str, source: str, config_set: str, *, client=None
+) -> Callable[[Notification, str], None]:
     """Build the email sender. Returns a `(Notification, address) -> None`.
 
     `source` is the verified From identity (Terraform passes var.notify_email).
+    `config_set` names the SES configuration set whose event destination publishes
+    delivery outcomes (ADR-0009); without it SES reports nothing after accepting.
+    `channel` exists only to be tagged onto the send: an event carries back whatever
+    tags went out, and the ledger key is `notification_id#channel`, so both halves
+    have to travel with the message. SES serves only email today, but hardcoding
+    that in the event worker would bury the assumption somewhere harder to find.
     `client` is injectable for tests, matching db.Store's `dynamodb=` pattern.
     Worker modules build SENDERS at import time, so the boto3 client below is
     created once per container and reused across invocations.
@@ -86,6 +99,11 @@ def ses_sender(source: str, *, client=None) -> Callable[[Notification, str], Non
                     "Subject": {"Data": subject},
                     "Body": {"Text": {"Data": body}},
                 },
+                ConfigurationSetName=config_set,
+                Tags=[
+                    {"Name": "notification_id", "Value": notification.notification_id},
+                    {"Name": "channel", "Value": channel},
+                ],
             )
         except ClientError as err:
             code = err.response["Error"]["Code"]
